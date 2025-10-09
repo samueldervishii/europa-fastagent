@@ -60,7 +60,7 @@ class AgentCompleter(Completer):
             "agents": "List available agents",
             "clear": "Clear the screen",
             "STOP": "Stop this prompting session and move to next workflow step",
-            "EXIT": "Exit fast-agent, terminating any running workflows",
+            "EXIT": "Exit Europa fast-agent, terminating any running workflows",
             **(commands or {}),  # Allow custom commands to be passed in
         }
         if is_human_input:
@@ -554,7 +554,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
-        rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
+        rich_print("  EXIT           - Exit Europa fast-agent, terminating any running workflows")
 
         rich_print("\n[bold]EUROPA MCP SERVERS & EXAMPLES:[/bold]")
 

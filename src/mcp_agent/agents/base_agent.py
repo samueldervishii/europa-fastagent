@@ -310,7 +310,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         )
 
         if isinstance(result, dict) and result.get("exit_requested", False):
-            raise PromptExitError(result.get("error", "User requested to exit FastAgent session"))
+            raise PromptExitError(result.get("error", "User requested to exit Europa FastAgent session"))
         self.logger.debug("Received human input signal", data=result)
         return result
 

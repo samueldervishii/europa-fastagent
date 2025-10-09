@@ -1,6 +1,7 @@
 from typing import Optional, Union
 
 from mcp.types import CallToolResult
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
@@ -176,8 +177,23 @@ class ConsoleDisplay:
                 style = "green" if server_name == mcp_server_name else "dim white"
                 display_server_list.append(f"[{server_name}] ", style)
 
+        # Convert string markdown to rich Markdown for better rendering
+        if isinstance(message_text, str):
+            # Render as markdown with styled bullets and formatting
+            rendered_content = Markdown(message_text)
+            # Debug: print to stderr so we can see if this code path is hit
+            import sys
+
+            print(f"[DEBUG] Rendering markdown, type: {type(rendered_content)}", file=sys.stderr)
+        else:
+            # If it's already a Text object, use it as-is
+            rendered_content = message_text
+            import sys
+
+            print(f"[DEBUG] Using Text object, type: {type(rendered_content)}", file=sys.stderr)
+
         panel = Panel(
-            message_text,
+            rendered_content,
             title=f"[{title}]{f' ({name})' if name else ''}",
             title_align="left",
             style="green",
@@ -186,7 +202,11 @@ class ConsoleDisplay:
             subtitle=display_server_list,
             subtitle_align="left",
         )
-        console.console.print(panel, markup=self._markup)
+        # When rendering Markdown objects, don't use markup parameter as it's already rendered
+        if isinstance(rendered_content, Markdown):
+            console.console.print(panel)
+        else:
+            console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
     def show_user_message(self, message, model: Optional[str], chat_turn: int, name: Optional[str] = None) -> None:

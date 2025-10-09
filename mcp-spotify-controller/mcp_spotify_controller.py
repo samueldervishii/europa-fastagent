@@ -275,7 +275,12 @@ def spotify_request(method: str, endpoint: str, **kwargs) -> requests.Response:
     """Make authenticated request to Spotify API with caching"""
     token = get_valid_token()
     if not token:
-        raise Exception("No valid Spotify access token. Please authenticate first using 'authenticate_spotify'.")
+        raise Exception(
+            "No valid Spotify access token.\n\n"
+            "To authenticate, run this command in your terminal:\n"
+            "  python authenticate_spotify.py\n\n"
+            "Or use the 'authenticate_spotify' MCP tool (but it won't show progress feedback)."
+        )
 
     headers = kwargs.get("headers", {})
     headers["Authorization"] = f"Bearer {token}"
@@ -319,11 +324,8 @@ async def authenticate_spotify() -> str:
     """
     global _auth_code_received
 
-    print("Starting Spotify authentication...")
-
     try:
         credentials = load_credentials()
-        print(f"Loaded credentials for client ID: {credentials['client_id'][:10]}...")
     except Exception as e:
         return f'Credential error: {e}\n\nPlease add your Spotify credentials to fastagent.secrets.yaml:\n\nspotify:\n  client_id: "your-client-id"\n  client_secret: "your-client-secret"\n  redirect_uri: "http://127.0.0.1:8080/callback"'
 
@@ -331,12 +333,10 @@ async def authenticate_spotify() -> str:
         return "Already authenticated with Spotify! You can now use music control features."
 
     try:
-        print("Starting local server on 127.0.0.1:8080...")
         httpd = socketserver.TCPServer(("127.0.0.1", 8080), CallbackHandler)
         server_thread = threading.Thread(target=httpd.serve_forever)
         server_thread.daemon = True
         server_thread.start()
-        print("Local server started successfully")
 
         scopes = [
             "user-read-playback-state",
@@ -359,47 +359,47 @@ async def authenticate_spotify() -> str:
 
         auth_url = f"{SPOTIFY_AUTH_URL}?{urlencode(auth_params)}"
 
+        # Try to open browser
+        browser_opened = False
         try:
             import subprocess
 
             try:
                 webbrowser.open(auth_url)
-                print("Opened browser for Spotify authentication")
-            except Exception as browser_error:
-                print(f"Browser module failed: {browser_error}")
-                print("Trying xdg-open...")
+                browser_opened = True
+            except Exception:
                 try:
                     subprocess.run(["xdg-open", auth_url], check=True, capture_output=True, text=True, timeout=10)
-                    print("Successfully opened browser with xdg-open")
-                except subprocess.CalledProcessError as e:
-                    print(f"xdg-open failed with exit code {e.returncode}")
-                    if e.stderr:
-                        print(f"Error output: {e.stderr}")
-                    print(f"Please manually open: {auth_url}")
-                except subprocess.TimeoutExpired:
-                    print("xdg-open timed out - browser may have opened")
-                    print(f"If browser didn't open, please manually open: {auth_url}")
-                except FileNotFoundError:
-                    print("xdg-open not found on system")
-                    print(f"Please manually open: {auth_url}")
-        except Exception as e:
-            print(f"Failed to open browser: {e}")
-            print(f"Please manually open: {auth_url}")
+                    browser_opened = True
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         _auth_code_received = None
         timeout = 120
         start_time = time.time()
 
-        print("Please complete authentication in your browser...")
-        print(f"If browser didn't open, go to: {auth_url}")
+        # Return immediate instructions to user
+        if browser_opened:
+            status_msg = f"🎵 Spotify Authentication Started!\n\n✓ Browser should open automatically\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\nIf browser didn't open, please visit:\n{auth_url}"
+        else:
+            status_msg = f"🎵 Spotify Authentication Started!\n\n⚠ Could not auto-open browser\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\n📋 Please open this URL in your browser:\n{auth_url}"
 
+        print(status_msg)  # For debugging logs
+
+        # Wait for callback with progress updates
+        elapsed = 0
         while _auth_code_received is None and (time.time() - start_time) < timeout:
             time.sleep(1)
+            elapsed = int(time.time() - start_time)
+            if elapsed % 15 == 0 and elapsed > 0:  # Every 15 seconds
+                print(f"Still waiting... ({elapsed}/{timeout}s elapsed)")
 
         httpd.shutdown()
 
         if _auth_code_received is None:
-            return f"Authentication timed out after {timeout} seconds. Please check:\n1. Browser opened the correct URL\n2. You completed the login process\n3. Redirect URI matches in Spotify app settings: {credentials['redirect_uri']}"
+            return f"❌ Authentication timed out after {timeout} seconds.\n\nPlease check:\n1. Browser opened the correct URL\n2. You completed the login process\n3. Redirect URI matches in Spotify app settings:\n   {credentials['redirect_uri']}\n\nTry running 'authenticate_spotify' again."
 
         auth_header = base64.b64encode(f"{credentials['client_id']}:{credentials['client_secret']}".encode()).decode()
 
@@ -413,10 +413,10 @@ async def authenticate_spotify() -> str:
         token_data = response.json()
         save_tokens(token_data["access_token"], token_data["refresh_token"], token_data["expires_in"])
 
-        return "Successfully authenticated with Spotify! You can now control your music."
+        return "✅ Successfully authenticated with Spotify!\n\nYou can now use music control features:\n- get_current_track\n- play_music\n- pause_music\n- skip_track\n- search_music\n- and more!"
 
     except Exception as e:
-        return f"Authentication failed: {e}"
+        return f"❌ Authentication failed: {e}\n\nPlease check your credentials and try again."
 
 
 @mcp.tool()
@@ -428,7 +428,8 @@ async def get_current_track() -> str:
         Current track information or playback status
     """
     try:
-        response = spotify_request("GET", "/me/player/currently-playing")
+        # Use /me/player endpoint for full device information
+        response = spotify_request("GET", "/me/player")
 
         if response.status_code == 204:
             return "No track currently playing"
@@ -440,7 +441,11 @@ async def get_current_track() -> str:
             return "Playback is paused"
 
         track = data.get("item", {})
+        if not track:
+            return "No track information available"
+
         artists = ", ".join([artist["name"] for artist in track.get("artists", [])])
+        device = data.get("device", {})
 
         progress_ms = data.get("progress_ms", 0)
         duration_ms = track.get("duration_ms", 0)
@@ -450,11 +455,22 @@ async def get_current_track() -> str:
         duration_min = duration_ms // 60000
         duration_sec = (duration_ms % 60000) // 1000
 
+        # Build device info string
+        device_name = device.get("name", "Unknown")
+        device_type = device.get("type", "").replace("_", " ").title()
+        volume = device.get("volume_percent", 0)
+
+        device_info = f"{device_name}"
+        if device_type:
+            device_info += f" ({device_type})"
+        if volume is not None:
+            device_info += f" - Volume: {volume}%"
+
         return f"""Now Playing:
 {track.get("name", "Unknown")} by {artists}
 Album: {track.get("album", {}).get("name", "Unknown")}
 Progress: {progress_min}:{progress_sec:02d} / {duration_min}:{duration_sec:02d}
-Device: {data.get("device", {}).get("name", "Unknown")}"""
+Device: {device_info}"""
 
     except Exception as e:
         return f"Failed to get current track: {e}"
