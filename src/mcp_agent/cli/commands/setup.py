@@ -148,11 +148,22 @@ if __name__ == "__main__":
 
 import base64
 import hashlib
+import os
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
 
-def derive_key_from_password(password: str) -> bytes:
-    # Derive a 32-byte key from the password (Fernet key)
-    digest = hashlib.sha256(password.encode()).digest()
-    return base64.urlsafe_b64encode(digest)
+def derive_key_from_password(password: str, salt: bytes, iterations: int = 200_000) -> bytes:
+    # Securely derive a 32-byte key from the password using PBKDF2HMAC (Fernet key)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=iterations,
+        backend=default_backend()
+    )
+    key = kdf.derive(password.encode())
+    return base64.urlsafe_b64encode(key)
 
 def find_gitignore(path: Path) -> bool:
     """Check if a .gitignore file exists in this directory or any parent."""
@@ -183,10 +194,12 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
         if password != confirm_password:
             console.print("[red]Passphrases do not match. Skipping secrets file creation.[/red]")
             return False
-        key = derive_key_from_password(password)
+        salt = os.urandom(16)
+        key = derive_key_from_password(password, salt)
         fernet = Fernet(key)
         encrypted_content = fernet.encrypt((content.strip() + "\n").encode())
-        path.write_bytes(encrypted_content)
+        # Store the salt (16 bytes) prefixed to the encrypted content
+        path.write_bytes(salt + encrypted_content)
         console.print(f"[green]Created encrypted[/green] {path}")
     else:
         path.write_text(content.strip() + "\n")
