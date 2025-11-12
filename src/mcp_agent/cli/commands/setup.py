@@ -3,6 +3,8 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.prompt import Confirm
+from cryptography.fernet import Fernet
+from getpass import getpass
 
 from ..setup_wizard import run_setup_wizard
 
@@ -144,6 +146,14 @@ if __name__ == "__main__":
 """
 
 
+import base64
+import hashlib
+
+def derive_key_from_password(password: str) -> bytes:
+    # Derive a 32-byte key from the password (Fernet key)
+    digest = hashlib.sha256(password.encode()).digest()
+    return base64.urlsafe_b64encode(digest)
+
 def find_gitignore(path: Path) -> bool:
     """Check if a .gitignore file exists in this directory or any parent."""
     current = path
@@ -165,8 +175,22 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
             console.print(f"Skipping {path}")
             return False
 
-    path.write_text(content.strip() + "\n")
-    console.print(f"[green]Created[/green] {path}")
+    # Encrypt secrets file, but not others
+    if path.name == "fastagent.secrets.yaml":
+        console.print("[yellow]fastagent.secrets.yaml will be encrypted.[/yellow]")
+        password = getpass("Enter a passphrase to encrypt your secrets file: ")
+        confirm_password = getpass("Re-enter the passphrase: ")
+        if password != confirm_password:
+            console.print("[red]Passphrases do not match. Skipping secrets file creation.[/red]")
+            return False
+        key = derive_key_from_password(password)
+        fernet = Fernet(key)
+        encrypted_content = fernet.encrypt((content.strip() + "\n").encode())
+        path.write_bytes(encrypted_content)
+        console.print(f"[green]Created encrypted[/green] {path}")
+    else:
+        path.write_text(content.strip() + "\n")
+        console.print(f"[green]Created[/green] {path}")
     return True
 
 
