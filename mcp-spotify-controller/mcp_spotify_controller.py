@@ -172,6 +172,23 @@ def _decrypt_data(encrypted_data: str) -> str:
         return encrypted_data
 
 
+def _sanitize_url_for_logging(url: str) -> str:
+    """Sanitize URL by redacting sensitive query parameters"""
+    try:
+        parsed = urlparse(url)
+        if parsed.query:
+            params = parse_qs(parsed.query)
+            # Redact sensitive parameters
+            if "client_id" in params:
+                client_id = params["client_id"][0]
+                params["client_id"] = [f"{client_id[:8]}...{client_id[-4:]}"]
+            sanitized_query = urlencode({k: v[0] for k, v in params.items()})
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{sanitized_query}"
+        return url
+    except Exception:
+        return "[URL redacted for security]"
+
+
 def save_tokens(access_token: str, refresh_token: str, expires_in: int):
     """Save tokens to a local cache file"""
     global _access_token, _refresh_token, _token_expires_at
@@ -381,10 +398,11 @@ async def authenticate_spotify() -> str:
         start_time = time.time()
 
         # Return immediate instructions to user
+        sanitized_auth_url = _sanitize_url_for_logging(auth_url)
         if browser_opened:
-            status_msg = f"🎵 Spotify Authentication Started!\n\n✓ Browser should open automatically\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\nIf browser didn't open, please visit:\n{auth_url}"
+            status_msg = f"🎵 Spotify Authentication Started!\n\n✓ Browser should open automatically\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\nIf browser didn't open, please visit:\n{sanitized_auth_url}"
         else:
-            status_msg = f"🎵 Spotify Authentication Started!\n\n⚠ Could not auto-open browser\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\n📋 Please open this URL in your browser:\n{auth_url}"
+            status_msg = f"🎵 Spotify Authentication Started!\n\n⚠ Could not auto-open browser\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\n📋 Please open this URL in your browser:\n{sanitized_auth_url}"
 
         print(status_msg)  # For debugging logs
 

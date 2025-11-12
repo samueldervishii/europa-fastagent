@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import typer
@@ -165,8 +166,24 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
             console.print(f"Skipping {path}")
             return False
 
+    # Write file content
     path.write_text(content.strip() + "\n")
-    console.print(f"[green]Created[/green] {path}")
+
+    # Set restrictive permissions for sensitive files (secrets, keys, credentials)
+    is_sensitive = any(
+        keyword in path.name.lower()
+        for keyword in ["secret", "key", "credential", "password", "token"]
+    )
+    if is_sensitive:
+        try:
+            os.chmod(path, 0o600)  # Read/write for owner only
+            console.print(f"[green]Created[/green] {path} [dim](permissions: 600)[/dim]")
+        except Exception:
+            # If chmod fails (e.g., on Windows), just warn but don't fail
+            console.print(f"[green]Created[/green] {path} [yellow](warning: could not set permissions)[/yellow]")
+    else:
+        console.print(f"[green]Created[/green] {path}")
+
     return True
 
 

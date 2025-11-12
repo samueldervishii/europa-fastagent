@@ -134,6 +134,23 @@ def encrypt_data(data):
     return f.encrypt(data.encode()).decode()
 
 
+def sanitize_url_for_logging(url):
+    """Sanitize URL by redacting sensitive query parameters"""
+    try:
+        parsed = urlparse(url)
+        if parsed.query:
+            params = parse_qs(parsed.query)
+            # Redact sensitive parameters
+            if 'client_id' in params:
+                client_id = params['client_id'][0]
+                params['client_id'] = [f"{client_id[:8]}...{client_id[-4:]}"]
+            sanitized_query = urlencode({k: v[0] for k, v in params.items()})
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{sanitized_query}"
+        return url
+    except Exception:
+        return "[URL redacted for security]"
+
+
 def save_tokens(access_token, refresh_token, expires_in):
     """Save tokens to a local cache file"""
     token_expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
@@ -158,9 +175,10 @@ def main():
     # Load credentials
     print("Loading credentials...")
     credentials = load_credentials()
-    print(f"[OK] Client ID: {credentials['client_id'][:10]}...{credentials['client_id'][-4:]}")
-    print(f"[OK] Redirect URI: {credentials['redirect_uri']}")
+    print("[OK] Credentials loaded successfully")
     print()
+
+
 
     # Start local server
     print("Starting local callback server on port 8080...")
@@ -211,7 +229,7 @@ def main():
 
     print()
     print("If browser didn't open, please visit:")
-    print(f"   {auth_url}")
+    print(f"   {sanitize_url_for_logging(auth_url)}")
     print()
     print("Waiting for authorization (timeout: 120 seconds)...")
     print("   Complete the login in your browser")
@@ -237,7 +255,7 @@ def main():
         print("Please check:")
         print("  1. Browser opened the correct URL")
         print("  2. You completed the login process")
-        print(f"  3. Redirect URI in your Spotify app settings: {credentials['redirect_uri']}")
+        print("  3. Redirect URI matches in your Spotify app settings")
         sys.exit(1)
 
     # Exchange code for tokens
