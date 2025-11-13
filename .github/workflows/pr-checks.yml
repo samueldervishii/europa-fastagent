@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [ main ]
 
+# Security: Explicit permissions following principle of least privilege
+permissions:
+  contents: read  # Required to checkout repository code
+
 jobs:
   checks:
     uses: ./.github/workflows/checks.yml

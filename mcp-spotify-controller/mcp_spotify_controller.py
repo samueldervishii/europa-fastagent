@@ -173,19 +173,41 @@ def _decrypt_data(encrypted_data: str) -> str:
 
 
 def _sanitize_url_for_logging(url: str) -> str:
-    """Sanitize URL by redacting sensitive query parameters"""
+    """Sanitize URL by redacting sensitive query parameters.
+
+    Security: This function removes or redacts sensitive information from URLs
+    before logging to prevent credential exposure in logs. It specifically redacts
+    client_id, client_secret, and other potentially sensitive OAuth parameters.
+
+    Args:
+        url: The URL to sanitize (may contain sensitive query parameters)
+
+    Returns:
+        A sanitized URL safe for logging, with sensitive data redacted
+    """
     try:
         parsed = urlparse(url)
         if parsed.query:
             params = parse_qs(parsed.query)
-            # Redact sensitive parameters
-            if "client_id" in params:
-                client_id = params["client_id"][0]
-                params["client_id"] = [f"{client_id[:8]}...{client_id[-4:]}"]
+            # Redact sensitive OAuth parameters to prevent credential exposure
+            sensitive_params = ["client_id", "client_secret", "code", "refresh_token", "access_token"]
+
+            for param in sensitive_params:
+                if param in params:
+                    value = params[param][0]
+                    if len(value) > 12:
+                        # Show only first 8 and last 4 characters for audit purposes
+                        params[param] = [f"{value[:8]}...{value[-4:]}"]
+                    else:
+                        # For short values, completely redact
+                        params[param] = ["[REDACTED]"]
+
             sanitized_query = urlencode({k: v[0] for k, v in params.items()})
+            # Return sanitized URL - safe for logging
             return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{sanitized_query}"
         return url
     except Exception:
+        # On any error, return safe fallback message
         return "[URL redacted for security]"
 
 
@@ -398,12 +420,16 @@ async def authenticate_spotify() -> str:
         start_time = time.time()
 
         # Return immediate instructions to user
+        # Security: Sanitize auth_url before including in any output/logs
+        # The _sanitize_url_for_logging function redacts sensitive OAuth parameters
         sanitized_auth_url = _sanitize_url_for_logging(auth_url)
+
         if browser_opened:
             status_msg = f"🎵 Spotify Authentication Started!\n\n✓ Browser should open automatically\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\nIf browser didn't open, please visit:\n{sanitized_auth_url}"
         else:
             status_msg = f"🎵 Spotify Authentication Started!\n\n⚠ Could not auto-open browser\n✓ Local server running on port 8080\n✓ Waiting for authorization (timeout: {timeout}s)\n\n📋 Please open this URL in your browser:\n{sanitized_auth_url}"
 
+        # Security: status_msg contains only sanitized URLs, safe for logging
         print(status_msg)  # For debugging logs
 
         # Wait for callback with progress updates

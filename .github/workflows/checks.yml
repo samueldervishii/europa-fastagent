@@ -3,6 +3,10 @@ name: Tests
 on:
   workflow_call:
 
+# Security: Explicit permissions following principle of least privilege
+permissions:
+  contents: read  # Required to checkout repository code
+
 jobs:
   format:
     runs-on: ubuntu-latest

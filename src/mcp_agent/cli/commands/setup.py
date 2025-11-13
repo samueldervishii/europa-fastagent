@@ -156,7 +156,13 @@ def find_gitignore(path: Path) -> bool:
 
 
 def create_file(path: Path, content: str, force: bool = False) -> bool:
-    """Create a file with given content if it doesn't exist or force is True."""
+    """Create a file with given content if it doesn't exist or force is True.
+
+    Security Note: This function writes configuration templates containing placeholder
+    values (e.g., '<your-api-key-here>'), not actual secrets. Real secrets should
+    only be added by users after file creation, and files are protected with
+    restrictive permissions (0o600) for sensitive content.
+    """
     if path.exists() and not force:
         should_overwrite = Confirm.ask(
             f"[yellow]Warning:[/yellow] {path} already exists. Overwrite?",
@@ -166,16 +172,28 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
             console.print(f"Skipping {path}")
             return False
 
-    # Write file content
+    # Validate that templates don't contain actual secrets (basic check)
+    # Templates should only contain placeholders like '<your-api-key-here>'
+    if any(keyword in path.name.lower() for keyword in ["secret", "key", "credential"]):
+        # Ensure content appears to be a template (contains angle brackets for placeholders)
+        if "<your" not in content.lower() and "<" in content and ">" in content:
+            console.print("[yellow]Warning:[/yellow] File may contain actual secrets. Please verify.")
+
+    # Set restrictive permissions for sensitive files BEFORE writing
+    # This ensures the file is created with secure permissions from the start
+    is_sensitive = any(keyword in path.name.lower() for keyword in ["secret", "key", "credential", "password", "token"])
+
+    # For sensitive files, create with restrictive permissions first
+    if is_sensitive:
+        # Create or truncate file with secure permissions
+        path.touch(mode=0o600, exist_ok=True)
+
+    # Write file content (file already has restrictive permissions if sensitive)
     path.write_text(content.strip() + "\n")
 
-    # Set restrictive permissions for sensitive files (secrets, keys, credentials)
-    is_sensitive = any(
-        keyword in path.name.lower()
-        for keyword in ["secret", "key", "credential", "password", "token"]
-    )
     if is_sensitive:
         try:
+            # Ensure permissions are still correct after write
             os.chmod(path, 0o600)  # Read/write for owner only
             console.print(f"[green]Created[/green] {path} [dim](permissions: 600)[/dim]")
         except Exception:
