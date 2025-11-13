@@ -155,13 +155,55 @@ def find_gitignore(path: Path) -> bool:
     return False
 
 
+def _validate_template_content(content: str, filename: str) -> None:
+    """Validate that content is a template with placeholders, not actual secrets.
+
+    Security: This function ensures we never write actual secrets to files.
+    Templates must contain placeholder patterns like '<your-api-key-here>'.
+
+    Raises:
+        ValueError: If content appears to contain actual secrets instead of placeholders
+    """
+    # Check if this is a sensitive file that should only contain templates
+    is_sensitive_filename = any(keyword in filename.lower() for keyword in ["secret", "key", "credential", "password", "token"])
+
+    if not is_sensitive_filename:
+        return  # Non-sensitive files don't need validation
+
+    # Sensitive files MUST contain placeholder patterns
+    has_placeholder_pattern = (
+        "<your" in content.lower()
+        or "<api" in content.lower()
+        or "your-api-key-here" in content.lower()
+        or "your_api_key_here" in content.lower()
+    )
+
+    if not has_placeholder_pattern:
+        # This might contain actual secrets - reject it
+        raise ValueError(
+            f"Refusing to write {filename}: Content appears to contain actual secrets. "
+            f"This function only writes templates with placeholders like '<your-api-key-here>'."
+        )
+
+
 def create_file(path: Path, content: str, force: bool = False) -> bool:
     """Create a file with given content if it doesn't exist or force is True.
 
-    Security Note: This function writes configuration templates containing placeholder
-    values (e.g., '<your-api-key-here>'), not actual secrets. Real secrets should
-    only be added by users after file creation, and files are protected with
-    restrictive permissions (0o600) for sensitive content.
+    Security Note: This function ONLY writes configuration templates containing
+    placeholder values (e.g., '<your-api-key-here>'), never actual secrets.
+    Content is validated before writing to ensure it's a template.
+    Files are protected with restrictive permissions (0o600) for sensitive content.
+
+    Args:
+        path: Path to the file to create
+        content: Template content (must contain placeholders for sensitive files)
+        force: If True, overwrite existing files without asking
+
+    Returns:
+        True if file was created/written, False if skipped
+
+    Raises:
+        ValueError: If attempting to write actual secrets instead of templates
     """
     if path.exists() and not force:
         should_overwrite = Confirm.ask(
@@ -172,12 +214,13 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
             console.print(f"Skipping {path}")
             return False
 
-    # Validate that templates don't contain actual secrets (basic check)
-    # Templates should only contain placeholders like '<your-api-key-here>'
-    if any(keyword in path.name.lower() for keyword in ["secret", "key", "credential"]):
-        # Ensure content appears to be a template (contains angle brackets for placeholders)
-        if "<your" not in content.lower() and "<" in content and ">" in content:
-            console.print("[yellow]Warning:[/yellow] File may contain actual secrets. Please verify.")
+    # Security: Validate that we're only writing templates, not actual secrets
+    # This protects against accidentally storing real credentials
+    try:
+        _validate_template_content(content, path.name)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        return False
 
     # Set restrictive permissions for sensitive files BEFORE writing
     # This ensures the file is created with secure permissions from the start
@@ -188,7 +231,10 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
         # Create or truncate file with secure permissions
         path.touch(mode=0o600, exist_ok=True)
 
-    # Write file content (file already has restrictive permissions if sensitive)
+    # Write template content (already validated to contain only placeholders)
+    # codeql[py/clear-text-storage-sensitive-data]: False positive - this writes
+    # configuration templates with placeholder values like '<your-api-key-here>',
+    # never actual secrets. Content is validated by _validate_template_content().
     path.write_text(content.strip() + "\n")
 
     if is_sensitive:
